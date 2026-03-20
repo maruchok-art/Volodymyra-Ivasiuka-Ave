@@ -110,7 +110,7 @@ def set_current_state(state):
 # ------------------------------------------------
 
 def main():
-    soc = 26  # ТИМЧАСОВИЙ ТЕСТ
+    soc = get_battery_soc() # ПОВЕРНУЛИ РЕАЛЬНІ ДАНІ
     current_state = get_current_state()
 
     print(f"Отримано SOC: {soc}, Поточний стан: {current_state}")
@@ -138,7 +138,8 @@ def main():
         set_current_state(2)
 
     elif 50 < soc <= 95 and current_state not in [1, 2, 3]:
-        msg = (f"🟡 <b>Увага! Ліфт працює від акумуляторів.</b>\n\n"
+        # ДОДАЛИ ВІДСОТОК ЗАРЯДУ ТУТ:
+        msg = (f"🟡 <b>Увага! Ліфт працює від акумуляторів (Заряд: {soc}%).</b>\n\n"
                f"Будь ласка, користуйтеся ним лише за крайньої потреби. Економте заряд!")
         send_telegram_message(msg)
         set_current_state(1)
@@ -149,4 +150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
