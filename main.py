@@ -1,6 +1,7 @@
 import requests
 import hashlib
 import os
+import time  # ДОДАНО ДЛЯ ПАУЗ МІЖ СПРОБАМИ
 
 # --- ОТРИМУЄМО НАЛАШТУВАННЯ З GITHUB SECRETS ---
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
@@ -27,7 +28,7 @@ def send_telegram_message(text):
         print(f"Помилка відправки в Telegram: {e}")
 
 def get_battery_soc():
-    """Отримує заряд акумулятора"""
+    """Базова функція: робить один запит до API"""
     if not SOLARMAN_PASSWORD:
         return "OFFLINE"
 
@@ -44,12 +45,10 @@ def get_battery_soc():
         auth_res = requests.post(auth_url, json=auth_payload, timeout=10).json()
         
         if not auth_res.get("success"):
-            print("Помилка авторизації:", auth_res)
             return "OFFLINE"
             
         token = auth_res.get("accessToken", "")
         if not token:
-            print("Помилка: Токен не знайдено!")
             return "OFFLINE"
             
         data_url = f"{API_URL}/v1.0/device/latest?appId={SOLARMAN_APP_ID}"
@@ -66,13 +65,11 @@ def get_battery_soc():
         device_data_list = data_res.get("deviceDataList", [])
         
         if not device_data_list:
-            print(f"Сервер не повернув даних для пристрою {DEVICE_SN}. RAW: {data_res}")
             return "OFFLINE"
             
         device_data = device_data_list[0]
         
         if str(device_data.get("deviceState", "")) == "2":
-            print("Інвертор не в мережі (deviceState=2)")
             return "OFFLINE"
 
         for item in device_data.get("dataList", []):
@@ -80,15 +77,28 @@ def get_battery_soc():
             if key in ["SOC", "BATTERY_SOC", "BATTERY CAPACITY", "BMS_SOC"]:
                 return float(item.get("value", 100))
         
-        keys_found = [i.get("key") for i in device_data.get("dataList", [])]
-        print("Не знайдено параметр SOC. Ось що віддав інвертор:", keys_found)
         return "OFFLINE"
                 
     except Exception as e:
-        print(f"Помилка з'єднання з API: {e}")
         return "OFFLINE"
 
-# --- ЛОГІКА ЗБЕРЕЖЕННЯ СТАНУ ЧЕРЕЗ ХМАРУ KVDB ---
+# --- НОВА ФУНКЦІЯ ЗАХИСТУ ВІД ХИБНИХ ТРИВОГ ---
+def get_battery_soc_with_retry(max_retries=3, delay_seconds=30):
+    """Робить кілька спроб перед тим, як оголосити OFFLINE"""
+    for attempt in range(max_retries):
+        soc = get_battery_soc()
+        if soc != "OFFLINE":
+            return soc  # Якщо все добре, одразу повертаємо результат
+        
+        print(f"⚠️ Спроба {attempt + 1} невдала. Сервер не відповів.")
+        if attempt < max_retries - 1:
+            print(f"⏳ Чекаємо {delay_seconds} секунд перед повторною спробою...")
+            time.sleep(delay_seconds)
+            
+    print("❌ Всі спроби вичерпано. Точно OFFLINE.")
+    return "OFFLINE"
+# ----------------------------------------------
+
 def get_current_state():
     if not KVDB_BUCKET: return 0
     url = f"https://kvdb.io/{KVDB_BUCKET}/elevator_state"
@@ -107,10 +117,10 @@ def set_current_state(state):
         requests.post(url, data=str(state), timeout=5)
     except:
         pass
-# ------------------------------------------------
 
 def main():
-    soc = get_battery_soc() # ПОВЕРНУЛИ РЕАЛЬНІ ДАНІ
+    # ТЕПЕР ВИКОРИСТОВУЄМО ФУНКЦІЮ З ПЕРЕВІРКАМИ:
+    soc = get_battery_soc_with_retry() 
     current_state = get_current_state()
 
     print(f"Отримано SOC: {soc}, Поточний стан: {current_state}")
@@ -138,7 +148,6 @@ def main():
         set_current_state(2)
 
     elif 50 < soc <= 95 and current_state not in [1, 2, 3]:
-        # ДОДАЛИ ВІДСОТОК ЗАРЯДУ ТУТ:
         msg = (f"🟡 <b>Увага! Ліфт працює від акумуляторів (Заряд: {soc}%).</b>\n\n"
                f"Будь ласка, користуйтеся ним лише за крайньої потреби. Економте заряд!")
         send_telegram_message(msg)
