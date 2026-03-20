@@ -110,6 +110,7 @@ def set_current_state(state):
 # ------------------------------------------------
 
 def main():
+    soc = 90  # ТИМЧАСОВИЙ ТЕСТ
     soc = get_battery_soc()
     current_state = get_current_state()
 
