@@ -27,7 +27,7 @@ def send_telegram_message(text):
         print(f"Помилка відправки в Telegram: {e}")
 
 def get_battery_soc():
-    """Отримує заряд акумулятора через новий ендпоінт /device/latest"""
+    """Отримує заряд акумулятора з діагностикою списку пристроїв"""
     if not SOLARMAN_PASSWORD:
         return "OFFLINE"
 
@@ -53,10 +53,8 @@ def get_battery_soc():
             print("Помилка: Токен не знайдено!")
             return "OFFLINE"
             
-        # 2. Отримання даних - НОВИЙ ШЛЯХ /device/latest
+        # 2. Запит останніх даних
         data_url = f"{API_URL}/v1.0/device/latest?appId={SOLARMAN_APP_ID}"
-        
-        # Перевірка Bearer
         auth_header = token if token.lower().startswith("bearer") else f"Bearer {token}"
         
         headers = {
@@ -64,23 +62,22 @@ def get_battery_soc():
             "Content-Type": "application/json"
         }
         
-        # НОВИЙ ФОРМАТ ЗАПИТУ (deviceList замість deviceSn)
-        data_payload = {
-            "deviceList": [DEVICE_SN]
-        }
-        
+        data_payload = {"deviceList": [DEVICE_SN]}
         data_res = requests.post(data_url, headers=headers, json=data_payload, timeout=10).json()
         
-        if not data_res.get("success"):
-            print("Помилка отримання даних:", data_res)
-            return "OFFLINE"
-            
+        print("RAW ВІДПОВІДЬ /latest:", data_res)
+        
         device_data_list = data_res.get("deviceDataList", [])
+        
+        # 3. ДІАГНОСТИКА: Якщо даних немає, просимо показати ВСІ пристрої
         if not device_data_list:
-            print("Сервер не повернув даних для цього інвертора.")
+            print("--- ДАНИХ НЕМАЄ. ПРОБУЄМО ОТРИМАТИ СПИСОК ПРИСТРОЇВ ---")
+            list_url = f"{API_URL}/v1.0/device/list?appId={SOLARMAN_APP_ID}"
+            list_payload = {"page": 1, "pageSize": 10}
+            list_res = requests.post(list_url, headers=headers, json=list_payload, timeout=10).json()
+            print("СПИСОК ДОСТУПНИХ ПРИСТРОЇВ:", list_res)
             return "OFFLINE"
             
-        # Беремо дані першого (і єдиного) інвертора зі списку
         device_data = device_data_list[0]
         
         if str(device_data.get("deviceState", "")) == "2":
@@ -93,10 +90,8 @@ def get_battery_soc():
             if key in ["SOC", "BATTERY_SOC", "BATTERY CAPACITY", "BMS_SOC"]:
                 return float(item.get("value", 100))
         
-        # Якщо підключились, але ключа немає — виводимо всі ключі в лог для перевірки
         keys_found = [i.get("key") for i in device_data.get("dataList", [])]
-        print("Не знайдено параметр SOC. Ось які параметри віддав інвертор:")
-        print(keys_found)
+        print("Не знайдено параметр SOC. Ось що віддав інвертор:", keys_found)
         return "OFFLINE"
                 
     except Exception as e:
