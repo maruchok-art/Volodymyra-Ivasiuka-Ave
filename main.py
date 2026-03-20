@@ -110,7 +110,7 @@ def set_current_state(state):
 # ------------------------------------------------
 
 def main():
-    soc = 45  # ТИМЧАСОВИЙ ТЕСТ
+    soc = 25  # ТИМЧАСОВИЙ ТЕСТ
     current_state = get_current_state()
 
     print(f"Отримано SOC: {soc}, Поточний стан: {current_state}")
