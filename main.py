@@ -27,13 +27,12 @@ def send_telegram_message(text):
         print(f"Помилка відправки в Telegram: {e}")
 
 def get_battery_soc():
-    """Отримує заряд акумулятора з діагностикою списку пристроїв"""
+    """Отримує заряд акумулятора"""
     if not SOLARMAN_PASSWORD:
         return "OFFLINE"
 
     pwd_hash = hashlib.sha256(SOLARMAN_PASSWORD.encode('utf-8')).hexdigest()
     
-    # 1. Авторизація
     auth_url = f"{API_URL}/v1.0/account/token?appId={SOLARMAN_APP_ID}"
     auth_payload = {
         "appSecret": SOLARMAN_APP_SECRET, 
@@ -53,7 +52,6 @@ def get_battery_soc():
             print("Помилка: Токен не знайдено!")
             return "OFFLINE"
             
-        # 2. Запит останніх даних
         data_url = f"{API_URL}/v1.0/device/latest?appId={SOLARMAN_APP_ID}"
         auth_header = token if token.lower().startswith("bearer") else f"Bearer {token}"
         
@@ -65,17 +63,10 @@ def get_battery_soc():
         data_payload = {"deviceList": [DEVICE_SN]}
         data_res = requests.post(data_url, headers=headers, json=data_payload, timeout=10).json()
         
-        print("RAW ВІДПОВІДЬ /latest:", data_res)
-        
         device_data_list = data_res.get("deviceDataList", [])
         
-        # 3. ДІАГНОСТИКА: Якщо даних немає, просимо показати ВСІ пристрої
         if not device_data_list:
-            print("--- ДАНИХ НЕМАЄ. ПРОБУЄМО ОТРИМАТИ СПИСОК ПРИСТРОЇВ ---")
-            list_url = f"{API_URL}/v1.0/device/list?appId={SOLARMAN_APP_ID}"
-            list_payload = {"page": 1, "pageSize": 10}
-            list_res = requests.post(list_url, headers=headers, json=list_payload, timeout=10).json()
-            print("СПИСОК ДОСТУПНИХ ПРИСТРОЇВ:", list_res)
+            print(f"Сервер не повернув даних для пристрою {DEVICE_SN}. RAW: {data_res}")
             return "OFFLINE"
             
         device_data = device_data_list[0]
@@ -84,7 +75,6 @@ def get_battery_soc():
             print("Інвертор не в мережі (deviceState=2)")
             return "OFFLINE"
 
-        # Витягуємо SOC
         for item in device_data.get("dataList", []):
             key = str(item.get("key", "")).upper()
             if key in ["SOC", "BATTERY_SOC", "BATTERY CAPACITY", "BMS_SOC"]:
