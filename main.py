@@ -48,7 +48,6 @@ def get_state():
     
     url = f"https://kvdb.io/{KVDB_BUCKET}/elevator_state_v2"
     
-    # Робимо 3 спроби достукатися до бази
     for attempt in range(3):
         try:
             res = requests.get(url, timeout=10)
@@ -56,8 +55,9 @@ def get_state():
                 return json.loads(res.text)
             if res.status_code == 404: # База ще порожня
                 return default_state
+            res.raise_for_status() # Жорстко реагуємо на помилки сервера (500, 502)
         except Exception as e:
-            logging.warning(f"KVDB не відповідає (спроба {attempt+1}/3). Чекаємо...")
+            logging.warning(f"KVDB не відповідає (спроба {attempt+1}/3). Помилка: {e}")
         time.sleep(3)
         
     logging.error("KVDB повністю недоступна. Вмикаємо режим 'Мовчання'.")
@@ -67,13 +67,13 @@ def get_state():
 def save_state(state_dict):
     """Зберігає словник стану у KVDB з повторними спробами."""
     if not KVDB_BUCKET: return
-    # Якщо ми в стані "Невідомо", не перезаписуємо базу, щоб не стерти справжню пам'ять
     if state_dict.get("state") == -1: return 
     
     url = f"https://kvdb.io/{KVDB_BUCKET}/elevator_state_v2"
     for attempt in range(3):
         try:
-            requests.post(url, json=state_dict, timeout=10)
+            res = requests.post(url, json=state_dict, timeout=10)
+            res.raise_for_status() # Перевіряємо, чи сервер точно прийняв запис
             return
         except Exception as e:
             pass
@@ -113,9 +113,12 @@ def fetch_soc_data(token):
         device_data = data_list[0]
         if str(device_data.get("deviceState", "")) == "2": return None
             
+        # ВИПРАВЛЕНИЙ ПОШУК: Тільки реальні відсотки, без ємності (Ah)
         for item in device_data.get("dataList", []):
-            if str(item.get("key", "")).upper() in ["SOC", "BATTERY_SOC", "BATTERY CAPACITY", "BMS_SOC"]:
+            key = str(item.get("key", "")).upper()
+            if key in ["SOC", "BATTERY_SOC", "BMS_SOC"]:
                 return float(item.get("value", 100))
+                
         return None
     except Exception as e:
         logging.error(f"Помилка запиту даних: {e}")
