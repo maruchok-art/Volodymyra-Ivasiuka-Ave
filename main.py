@@ -5,7 +5,7 @@ import time
 import json
 import logging
 
-# 1. Професійне логування з часовими мітками
+# Професійне логування
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- ОТРИМУЄМО НАЛАШТУВАННЯ З GITHUB SECRETS ---
@@ -20,24 +20,23 @@ KVDB_BUCKET = os.environ.get("KVDB_BUCKET")
 
 API_URL = "https://eu1-developer.deyecloud.com"
 
-# --- ЛОГІКА ТЕЛЕГРАМУ ---
 def send_telegram_message(text, silent=False):
-    """Відправляє повідомлення у Telegram (можливість відправляти без звуку)"""
+    """Відправляє повідомлення у Telegram"""
     url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": TG_CHAT_ID, 
         "text": text, 
         "parse_mode": "HTML",
-        "disable_notification": silent  # Робить сповіщення тихим
+        "disable_notification": silent
     }
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         logging.error(f"Помилка відправки в Telegram: {e}")
 
-# --- БЕЗПЕЧНА РОБОТА З БАЗОЮ ДАНИХ (ПЛАН "Б") ---
+# --- БЕЗПЕЧНА РОБОТА З БАЗОЮ ДАНИХ (З ПОВТОРНИМИ СПРОБАМИ) ---
 def get_state():
-    """Отримує словник стану з KVDB. Якщо помилка - повертає безпечні значення по замовчуванню."""
+    """Отримує словник стану з KVDB. Якщо помилка - робить кілька спроб."""
     default_state = {
         "state": 0, 
         "token": "", 
@@ -48,26 +47,40 @@ def get_state():
     if not KVDB_BUCKET: return default_state
     
     url = f"https://kvdb.io/{KVDB_BUCKET}/elevator_state_v2"
-    try:
-        res = requests.get(url, timeout=5)
-        if res.status_code == 200:
-            return json.loads(res.text)
-    except Exception as e:
-        logging.warning(f"KVDB тимчасово недоступний (Читання). Використовуємо План Б: {e}")
+    
+    # Робимо 3 спроби достукатися до бази
+    for attempt in range(3):
+        try:
+            res = requests.get(url, timeout=10)
+            if res.status_code == 200:
+                return json.loads(res.text)
+            if res.status_code == 404: # База ще порожня
+                return default_state
+        except Exception as e:
+            logging.warning(f"KVDB не відповідає (спроба {attempt+1}/3). Чекаємо...")
+        time.sleep(3)
+        
+    logging.error("KVDB повністю недоступна. Вмикаємо режим 'Мовчання'.")
+    default_state["state"] = -1 # Спеціальний стан-запобіжник
     return default_state
 
 def save_state(state_dict):
-    """Зберігає словник стану у KVDB."""
+    """Зберігає словник стану у KVDB з повторними спробами."""
     if not KVDB_BUCKET: return
+    # Якщо ми в стані "Невідомо", не перезаписуємо базу, щоб не стерти справжню пам'ять
+    if state_dict.get("state") == -1: return 
+    
     url = f"https://kvdb.io/{KVDB_BUCKET}/elevator_state_v2"
-    try:
-        requests.post(url, json=state_dict, timeout=5)
-    except Exception as e:
-        logging.warning(f"KVDB тимчасово недоступний (Запис): {e}")
+    for attempt in range(3):
+        try:
+            requests.post(url, json=state_dict, timeout=10)
+            return
+        except Exception as e:
+            pass
+        time.sleep(3)
 
-# --- ЛОГІКА API DEYE (З КЕШУВАННЯМ) ---
+# --- ЛОГІКА API DEYE ---
 def fetch_new_token():
-    """Генерує новий токен доступу"""
     if not SOLARMAN_PASSWORD: return None
     pwd_hash = hashlib.sha256(SOLARMAN_PASSWORD.encode('utf-8')).hexdigest()
     auth_url = f"{API_URL}/v1.0/account/token?appId={SOLARMAN_APP_ID}"
@@ -81,7 +94,6 @@ def fetch_new_token():
     return None
 
 def fetch_soc_data(token):
-    """Отримує заряд по токену. Повертає SOC, None або 'AUTH_ERROR'"""
     if not token: return None
     url = f"{API_URL}/v1.0/device/latest?appId={SOLARMAN_APP_ID}"
     auth_header = token if token.lower().startswith("bearer") else f"Bearer {token}"
@@ -90,8 +102,6 @@ def fetch_soc_data(token):
     
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=10).json()
-        
-        # Перевірка на прострочений/невалідний токен
         if not res.get("success"):
             code = str(res.get("code", ""))
             if "2101" in code or code in ["1000001", "1000002"]: 
@@ -100,9 +110,8 @@ def fetch_soc_data(token):
             
         data_list = res.get("deviceDataList", [])
         if not data_list: return None
-        
         device_data = data_list[0]
-        if str(device_data.get("deviceState", "")) == "2": return None # Офлайн
+        if str(device_data.get("deviceState", "")) == "2": return None
             
         for item in device_data.get("dataList", []):
             if str(item.get("key", "")).upper() in ["SOC", "BATTERY_SOC", "BATTERY CAPACITY", "BMS_SOC"]:
@@ -113,14 +122,12 @@ def fetch_soc_data(token):
         return None
 
 def get_battery_soc_with_retry(state, max_retries=3, delay=15):
-    """Надійна функція отримання заряду з використанням кешованого токена"""
     for attempt in range(max_retries):
         token = state.get("token", "")
         token_time = state.get("token_time", 0)
         
-        # Якщо токена немає або він старший за 12 годин (43200 сек) - оновлюємо
         if not token or (time.time() - token_time) > 43200:
-            logging.info("Токен відсутній або застарів. Отримуємо новий...")
+            logging.info("Отримуємо новий токен...")
             token = fetch_new_token()
             if token:
                 state["token"] = token
@@ -129,13 +136,13 @@ def get_battery_soc_with_retry(state, max_retries=3, delay=15):
         if token:
             soc = fetch_soc_data(token)
             if soc == "AUTH_ERROR":
-                logging.info("Сервер відхилив токен. Примусове оновлення...")
-                state["token"] = "" # Змусить оновити токен на наступному циклі
+                logging.info("Токен відхилено. Оновлюємо...")
+                state["token"] = "" 
                 continue
             elif soc is not None:
                 return soc
                 
-        logging.warning(f"Спроба {attempt + 1} невдала. Чекаємо {delay} сек...")
+        logging.warning(f"API Deye не відповів (спроба {attempt+1}/3). Чекаємо {delay} сек...")
         if attempt < max_retries - 1:
             time.sleep(delay)
             
@@ -149,17 +156,11 @@ def main():
     soc = get_battery_soc_with_retry(state)
     logging.info(f"Отримано SOC: {soc}, Поточний рівень тривоги: {current_state_level}")
 
-    # Перевірка на "зависання"
-    if isinstance(soc, (int, float)):
-        if soc == state.get("last_soc", 100):
-            # Якщо заряд < 100% і не мінявся більше 4 годин
-            if soc < 100 and (time.time() - state.get("last_soc_time", time.time())) > 14400:
-                logging.warning(f"Можливе зависання даних! Заряд {soc}% не змінюється більше 4 годин.")
-        else:
-            state["last_soc"] = soc
-            state["last_soc_time"] = time.time()
+    # ЗАХИСТ ВІД ДУБЛІВ: Якщо база даних відвалилася, нічого не пишемо в канал!
+    if current_state_level == -1:
+        logging.warning("Пропуск логіки сповіщень через помилку бази даних (захист від спаму).")
+        return
 
-    # Втрата зв'язку
     if soc == "OFFLINE":
         if current_state_level != 4:
             msg = (f"⚠️ <b>Увага! Втрачено зв'язок з інвертором ліфта.</b>\n\n"
@@ -167,17 +168,15 @@ def main():
                    f"Будь ласка, будьте обережні з ліфтом!")
             send_telegram_message(msg)
             state["state"] = 4
-            save_state(state)
+        save_state(state)
         return
 
-    # КРИТИЧНО (Червона зона)
     if soc <= 30 and current_state_level != 3:
         msg = (f"🔴 ⛔️ <b>КРИТИЧНИЙ ЗАРЯД ({soc}%)! НЕ СІДАЙТЕ В ЛІФТ!</b> ⛔️\n\n"
                f"Є високий ризик зупинки кабіни між поверхами.")
         send_telegram_message(msg, silent=False)
         state["state"] = 3
 
-    # ОБМЕЖЕНО (Оранжева зона)
     elif 30 < soc <= 50 and current_state_level not in [2, 3]:
         msg = (f"🟠 <b>Заряд акумулятора ліфта: {soc}%</b>\n\n"
                f"Запас ходу обмежений. Просимо максимально скоротити "
@@ -185,14 +184,12 @@ def main():
         send_telegram_message(msg, silent=False)
         state["state"] = 2
 
-    # РЕЗЕРВ (Жовта зона - ТИХЕ повідомлення)
     elif 50 < soc <= 95 and current_state_level not in [1, 2, 3]:
         msg = (f"🟡 <b>Увага! Ліфт працює від акумуляторів (Заряд: {soc}%).</b>\n\n"
                f"Будь ласка, користуйтеся ним лише за крайньої потреби. Економте заряд!")
-        send_telegram_message(msg, silent=True) # Сповіщення без звуку!
+        send_telegram_message(msg, silent=True) 
         state["state"] = 1
 
-    # ЗАРЯДЖЕНО (Зелена зона)
     elif soc > 95 and current_state_level > 0:
         state["state"] = 0
         logging.info("Батарея заряджена. Стан скинуто на 0 (тихо).")
