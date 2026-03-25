@@ -31,4 +31,5 @@ jobs:
         SOLARMAN_EMAIL: ${{ secrets.SOLARMAN_EMAIL }}
         SOLARMAN_PASSWORD: ${{ secrets.SOLARMAN_PASSWORD }}
         DEVICE_SN: ${{ secrets.DEVICE_SN }}
+        JSONBLOB_ID: ${{ secrets.JSONBLOB_ID }}
       run: python main.py
