@@ -2,7 +2,7 @@
   "name": "Ліфт · Акумулятор",
   "short_name": "Ліфт",
   "description": "Моніторинг заряду акумулятора ліфта",
-  "start_url": "/Volodymyra-Ivasiuka-Ave/dashboard.html",
+  "start_url": "/inverter-battery-monitor/dashboard.html",
   "display": "standalone",
   "background_color": "#0f1117",
   "theme_color": "#1a1d2e",
