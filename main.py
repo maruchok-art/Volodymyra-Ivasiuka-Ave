@@ -206,9 +206,11 @@ def main():
     else:
         logging.info("Стан не змінився. Дій не потрібно.")
 
-    # 4. Зберігаємо завжди — щоб не втратити оновлений токен
+    # 4. Зберігаємо завжди
+    if soc != "OFFLINE":
+        state["last_soc"] = soc
+        state["last_update"] = int(time.time())
     save_state(state)
-
 
 if __name__ == "__main__":
     main()
