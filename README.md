@@ -12,7 +12,7 @@
 - 📲 Автоматичні сповіщення в Telegram-канал при зміні рівня заряду
 - 🌐 Веб-дашборд з поточним станом акумулятора
 - 📱 Встановлюється як додаток на телефон (PWA)
-- ⚡ Запускається кожні 10 хвилин автоматично
+- ⚡ Запускається кожні 10 хвилин через cron-job.org + GitHub Actions
 
 ---
 
@@ -43,7 +43,7 @@
       ↓ (Deye Cloud API)
   Python скрипт
       ↓ (кожні 10 хв через cron-job.org + GitHub Actions)
-  JSONBlob (зберігання стану)
+  GitHub Gist (зберігання стану)
       ↓ (при зміні рівня заряду)
   Telegram канал  +  Веб-дашборд
 ```
@@ -56,7 +56,7 @@
 |-----------|-----------|---------|
 | Виконання скрипту | GitHub Actions | Безкоштовно |
 | Розклад запусків | cron-job.org | Безкоштовно |
-| База даних стану | JSONBlob | Безкоштовно |
+| База даних стану | GitHub Gist | Безкоштовно |
 | Хостинг дашборду | GitHub Pages | Безкоштовно |
 | API інвертора | Deye Cloud | Безкоштовно |
 
@@ -70,23 +70,33 @@
 Додати в Settings → Secrets → Actions:
 
 ```
-TG_BOT_TOKEN        — токен Telegram бота (@BotFather)
-TG_CHAT_ID          — ID Telegram каналу
-SOLARMAN_APP_ID     — App ID з Deye Developer Portal
-SOLARMAN_APP_SECRET — App Secret з Deye Developer Portal
-SOLARMAN_EMAIL      — email акаунту Deye
-SOLARMAN_PASSWORD   — пароль акаунту Deye
-DEVICE_SN           — серійний номер інвертора
-JSONBLOB_ID         — ID блобу на jsonblob.com
+TG_BOT_TOKEN            — токен Telegram бота (@BotFather)
+TG_CHAT_ID              — ID Telegram каналу
+SOLARMAN_APP_ID         — App ID з Deye Developer Portal
+SOLARMAN_APP_SECRET     — App Secret з Deye Developer Portal
+SOLARMAN_EMAIL          — email акаунту Deye
+SOLARMAN_PASSWORD       — пароль акаунту Deye
+DEVICE_SN               — серійний номер інвертора
+GIST_ID                 — ID файлу state.json на gist.github.com
+PERSONAL_GITHUB_TOKEN   — особистий токен GitHub з правами gist
 ```
 
-### JSONBlob
-Створити новий blob на [jsonblob.com](https://jsonblob.com) з початковим вмістом:
+### GitHub Gist
+Створити новий secret gist на [gist.github.com](https://gist.github.com):
+- Назва файлу: `state.json`
+- Вміст:
 ```json
 {"state": 0, "token": "", "token_time": 0}
 ```
+Скопіювати ID з URL і додати в secrets як `GIST_ID`.
+
+### GitHub токен
+Створити особистий токен в Settings → Developer settings → Tokens (classic):
+- Права: `gist` + `workflow`
+- Додати в secrets як `PERSONAL_GITHUB_TOKEN`
 
 ### cron-job.org
+Налаштувати завдання для надійного запуску кожні 10 хвилин:
 - **URL:** `https://api.github.com/repos/ТВІЙ_НІК/inverter-battery-monitor/dispatches`
 - **Method:** POST
 - **Headers:** `Authorization: Bearer GITHUB_TOKEN`, `Content-Type: application/json`
