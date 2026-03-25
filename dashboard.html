@@ -152,6 +152,9 @@ const STATES = {
 };
 
 async function loadData() {
+  const btn = document.querySelector(".refresh-btn");
+  btn.textContent = "⏳ Завантаження...";
+  btn.disabled = true;
   document.getElementById("error").textContent = "";
   try {
     const res = await fetch(URL, { headers: { Accept: "application/json", "Cache-Control": "no-cache" } });
@@ -191,6 +194,9 @@ async function loadData() {
 
   } catch (e) {
     document.getElementById("error").textContent = "Помилка завантаження: " + e.message;
+  } finally {
+    btn.textContent = "↻ Оновити";
+    btn.disabled = false;
   }
 }
 
