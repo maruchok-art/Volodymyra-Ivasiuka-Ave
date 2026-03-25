@@ -20,7 +20,7 @@ DEVICE_SN = os.environ.get("DEVICE_SN")
 API_URL = "https://eu1-developer.deyecloud.com"
 
 # НАДІЙНА БАЗА ДАНИХ JSONBLOB
-JSONBLOB_ID = "019d1fde-f71e-7530-83fb-a58fe38ac1c7"
+JSONBLOB_ID = os.environ.get("JSONBLOB_ID")
 STORAGE_URL = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
 
 # Час життя токена (12 годин)
